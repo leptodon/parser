@@ -2,6 +2,7 @@ package data.repository
 
 import data.api.AuthException
 import data.api.KickstarterApi
+import data.api.RateLimitException
 import data.repository.mapping.ProjectDetailsMapper
 import data.repository.mapping.ProjectMapper
 import data.storage.StateManager
@@ -9,6 +10,7 @@ import domain.model.Project
 import domain.model.ProjectDetails
 import domain.repository.ProjectRepository
 import kotlinx.coroutines.delay
+import org.slf4j.LoggerFactory
 
 class ProjectRepositoryImpl(
     private val api: KickstarterApi,
@@ -16,6 +18,8 @@ class ProjectRepositoryImpl(
     private val projectMapper: ProjectMapper,
     private val projectDetailsMapper: ProjectDetailsMapper
 ) : ProjectRepository {
+
+    private val logger = LoggerFactory.getLogger(ProjectRepositoryImpl::class.java)
 
     override suspend fun getProjects(limit: Int): Result<List<Project>> {
         val cursor = stateManager.getLastCursor()
@@ -30,12 +34,20 @@ class ProjectRepositoryImpl(
                     Result.success(projects)
                 },
                 onFailure = { error ->
-                    if (error is AuthException) {
-                        Result.failure(error)
-                    } else {
-                        // Retry with exponential backoff
-                        delay(5000)
-                        Result.failure(error)
+                    when (error) {
+                        is AuthException -> {
+                            logger.warn("Authentication error in getProjects")
+                            Result.failure(error)
+                        }
+                        is RateLimitException -> {
+                            logger.warn("Rate limit exceeded in getProjects - applying backoff")
+                            Result.failure(error)
+                        }
+                        else -> {
+                            logger.error("Generic error in getProjects, retrying with backoff", error)
+                            delay(5000)
+                            Result.failure(error)
+                        }
                     }
                 }
             )
@@ -53,12 +65,20 @@ class ProjectRepositoryImpl(
                     Result.success(projectDetails)
                 },
                 onFailure = { error ->
-                    if (error is AuthException) {
-                        Result.failure(error)
-                    } else {
-                        // Retry with exponential backoff
-                        delay(5000)
-                        Result.failure(error)
+                    when (error) {
+                        is AuthException -> {
+                            logger.warn("Authentication error in getProjectDetails for $slug")
+                            Result.failure(error)
+                        }
+                        is RateLimitException -> {
+                            logger.warn("Rate limit exceeded in getProjectDetails for $slug - applying backoff")
+                            Result.failure(error)
+                        }
+                        else -> {
+                            logger.error("Generic error in getProjectDetails for $slug, retrying with backoff", error)
+                            delay(5000)
+                            Result.failure(error)
+                        }
                     }
                 }
             )

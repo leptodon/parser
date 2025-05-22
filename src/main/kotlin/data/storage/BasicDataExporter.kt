@@ -81,10 +81,10 @@ class BasicDataExporter {
             appendLine("    \"category\": \"${escapeJson(project.category)}\",")
             appendLine("    \"subcategory\": \"${escapeJson(project.subcategory ?: "")}\",")
             appendLine("    \"country\": \"${escapeJson(project.country)}\",")
-            appendLine("    \"currency\": \"${escapeJson(project.currency)}\",")
+            appendLine("    \"currency\": \"${escapeJson(project.currency ?: "")}\",")
             appendLine("    \"location\": \"${escapeJson(project.location ?: "")}\",")
 
-            appendLine("    \"deadlineEpoch\": ${project.deadline.epochSecond},")
+            appendLine("    \"deadlineEpoch\": ${project.deadline?.epochSecond},")
             appendLine("    \"launchedAtEpoch\": ${project.launchedAt?.epochSecond ?: 0},")
 
             appendLine("    \"state\": \"${escapeJson(project.state)}\",")
@@ -117,7 +117,7 @@ class BasicDataExporter {
             appendLine("      \"totalBackersFromRewards\": ${projectDetails.rewards.sumOf { it.backersCount }},")
 
             val durationDays = if (project.launchedAt != null) {
-                ((project.deadline.epochSecond - project.launchedAt.epochSecond) / 86400).toInt()
+                ((project.deadline?.epochSecond?.minus(project.launchedAt.epochSecond))?.div(86400))?.toInt() ?: 0
             } else 0
             appendLine("      \"durationDays\": $durationDays,")
 
@@ -177,11 +177,11 @@ class BasicDataExporter {
             escape(project.category),
             escape(project.subcategory ?: ""),
             escape(project.country),
-            escape(project.currency),
+            escape(project.currency ?: ""),
 
             // Временные признаки
             if (project.launchedAt != null) {
-                ((project.deadline.epochSecond - project.launchedAt.epochSecond) / 86400).toString()
+                ((project.deadline?.epochSecond?.minus(project.launchedAt.epochSecond))?.div(86400)).toString()
             } else "0",
 
             // Создатель

@@ -1,6 +1,7 @@
 package presentation
 
 import data.api.AuthException
+import data.api.RateLimitException
 import domain.model.Project
 import domain.usecase.GetProjectDetailsUseCase
 import domain.usecase.GetProjectsUseCase
@@ -11,6 +12,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import kotlin.fold
+import kotlin.math.pow
 
 class ParserController(
     private val getProjectsUseCase: GetProjectsUseCase,
@@ -20,6 +22,10 @@ class ParserController(
     private val logger = LoggerFactory.getLogger(ParserController::class.java)
     private var isRunning = false
     private var requestNewToken: suspend () -> String? = { null }
+
+    // Rate limiting state
+    private var consecutiveRateLimitErrors = 0
+    private var lastRateLimitTime = 0L
 
     suspend fun startParsing(
         batchSize: Int,
@@ -36,8 +42,14 @@ class ParserController(
         requestNewToken = tokenProvider
         var processedCount = 0
 
+        // Reset rate limiting state
+        consecutiveRateLimitErrors = 0
+        lastRateLimitTime = 0L
+
         try {
             while (getProjectsUseCase.hasMoreProjects() && (maxProjects <= 0 || processedCount < maxProjects)) {
+                if (!isRunning) break
+
                 val remainingCount = if (maxProjects <= 0) batchSize else minOf(batchSize, maxProjects - processedCount)
                 if (remainingCount <= 0) break
 
@@ -48,6 +60,9 @@ class ParserController(
                 projectsResult.fold(
                     onSuccess = { projects ->
                         logger.info("Fetched ${projects.size} projects")
+
+                        // Reset rate limit counters on successful request
+                        consecutiveRateLimitErrors = 0
 
                         for (project in projects) {
                             if (!isRunning) break
@@ -64,22 +79,36 @@ class ParserController(
                                     break
                                 }
 
-                                // Throttle requests
-                                delay(delayBetweenRequests)
+                                // Apply dynamic throttling based on recent rate limits
+                                val dynamicDelay = calculateDynamicDelay(delayBetweenRequests)
+                                if (dynamicDelay > delayBetweenRequests) {
+                                    logger.info("⏳ Applying extended delay: ${dynamicDelay}ms (recent rate limits detected)")
+                                }
+                                delay(dynamicDelay)
+
                             } catch (e: AuthException) {
                                 handleAuthError()
+                            } catch (e: RateLimitException) {
+                                handleRateLimitError()
                             } catch (e: Exception) {
                                 logger.error("❌ Error processing project ${project.slug}", e)
-                                // Continue with next project
+                                // Continue with next project after a short delay
+                                delay(2000)
                             }
                         }
                     },
                     onFailure = { error ->
-                        if (error is AuthException) {
-                            handleAuthError()
-                        } else {
-                            logger.error("Failed to fetch projects", error)
-                            delay(5000) // Wait before retrying
+                        when (error) {
+                            is AuthException -> {
+                                handleAuthError()
+                            }
+                            is RateLimitException -> {
+                                handleRateLimitError()
+                            }
+                            else -> {
+                                logger.error("Failed to fetch projects", error)
+                                delay(5000) // Wait before retrying
+                            }
                         }
                     }
                 )
@@ -111,11 +140,17 @@ class ParserController(
                 )
             },
             onFailure = { error ->
-                if (error is AuthException) {
-                    throw error // Let the caller handle auth errors
-                } else {
-                    logger.error("📱 Failed to fetch details for ${project.name}", error)
-                    throw error // Re-throw to stop processing this project
+                when (error) {
+                    is AuthException -> {
+                        throw error // Let the caller handle auth errors
+                    }
+                    is RateLimitException -> {
+                        throw error // Let the caller handle rate limit errors
+                    }
+                    else -> {
+                        logger.error("📱 Failed to fetch details for ${project.name}", error)
+                        throw error // Re-throw to stop processing this project
+                    }
                 }
             }
         )
@@ -130,6 +165,57 @@ class ParserController(
             isRunning = false
         } else {
             logger.info("🔑 Received new token. Continuing...")
+        }
+    }
+
+    private suspend fun handleRateLimitError() {
+        consecutiveRateLimitErrors++
+        val currentTime = System.currentTimeMillis()
+        lastRateLimitTime = currentTime
+
+        // Calculate exponential backoff with jitter
+        val baseDelay = 60_000L // 1 minute base
+        val backoffDelay = (baseDelay * (2.0.pow(consecutiveRateLimitErrors - 1))).toLong()
+        val maxDelay = 600_000L // 10 minutes max
+        val actualDelay = minOf(backoffDelay, maxDelay)
+
+        // Add some jitter (±10%)
+        val jitter = (actualDelay * 0.1 * (Math.random() - 0.5)).toLong()
+        val finalDelay = actualDelay + jitter
+
+        logger.warn("🚦 Rate limit exceeded (attempt #$consecutiveRateLimitErrors). Cooling down for ${finalDelay / 1000} seconds...")
+        logger.info("💡 Tip: You can stop the parser and resume later if needed")
+
+        // Show countdown
+        var remainingSeconds = (finalDelay / 1000).toInt()
+        while (remainingSeconds > 0 && isRunning) {
+            if (remainingSeconds % 30 == 0 || remainingSeconds <= 10) {
+                logger.info("⏰ Resuming in $remainingSeconds seconds...")
+            }
+            delay(1000)
+            remainingSeconds--
+        }
+
+        if (isRunning) {
+            logger.info("🟢 Cooldown complete. Resuming parsing...")
+        }
+    }
+
+    private fun calculateDynamicDelay(baseDelay: Long): Long {
+        val currentTime = System.currentTimeMillis()
+        val timeSinceLastRateLimit = currentTime - lastRateLimitTime
+
+        return when {
+            // If we had rate limits recently (within last 5 minutes), be more conservative
+            timeSinceLastRateLimit < 300_000L && consecutiveRateLimitErrors > 0 -> {
+                baseDelay * 3 // Triple the delay
+            }
+            // If we had rate limits within last 10 minutes, be moderately conservative
+            timeSinceLastRateLimit < 600_000L && consecutiveRateLimitErrors > 0 -> {
+                baseDelay * 2 // Double the delay
+            }
+            // Normal operation
+            else -> baseDelay
         }
     }
 

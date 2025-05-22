@@ -1,6 +1,5 @@
 package data.api
 
-
 import data.api.model.GraphQLRequest
 import data.api.model.ProjectDetailsResponse
 import data.api.model.ProjectsResponse
@@ -13,12 +12,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import org.slf4j.MDC.put
+import org.slf4j.LoggerFactory
 
 class KickstarterApiImpl(
     private val httpClient: HttpClient,
     private val authInterceptor: AuthInterceptor
 ) : KickstarterApi {
+
+    private val logger = LoggerFactory.getLogger(KickstarterApiImpl::class.java)
 
     companion object {
         private const val BASE_URL = "https://www.kickstarter.com/graph"
@@ -180,19 +181,6 @@ class KickstarterApiImpl(
               } 
             }
         """
-
-        private const val CREATOR_DETAILS_QUERY = """
-            query ProjectCreatorDetails(${'$'}slug: String!) { 
-              project(slug: ${'$'}slug) { 
-                creator { 
-                  backingsCount 
-                  launchedProjects { 
-                    totalCount 
-                  } 
-                } 
-              } 
-            }
-        """
     }
 
     override suspend fun getProjects(cursor: String?, limit: Int): Result<ProjectsResponse> = withContext(Dispatchers.IO) {
@@ -225,12 +213,20 @@ class KickstarterApiImpl(
         } catch (e: Exception) {
             when (e) {
                 is ClientRequestException -> {
-                    if (e.response.status == HttpStatusCode.Unauthorized) {
-                        // Очищаем кэшированный токен, так как он недействителен
-                        authInterceptor.clearCachedToken()
-                        Result.failure(AuthException("Authorization required"))
-                    } else {
-                        Result.failure(e)
+                    when (e.response.status) {
+                        HttpStatusCode.Unauthorized -> {
+                            // Очищаем кэшированный токен, так как он недействителен
+                            authInterceptor.clearCachedToken()
+                            Result.failure(AuthException("Authorization required"))
+                        }
+                        HttpStatusCode.TooManyRequests -> {
+                            logger.warn("Rate limit exceeded for projects API")
+                            Result.failure(RateLimitException("Rate limit exceeded - need to slow down requests"))
+                        }
+                        else -> {
+                            logger.error("HTTP error ${e.response.status} when fetching projects")
+                            Result.failure(e)
+                        }
                     }
                 }
                 else -> Result.failure(e)
@@ -264,12 +260,20 @@ class KickstarterApiImpl(
         } catch (e: Exception) {
             when (e) {
                 is ClientRequestException -> {
-                    if (e.response.status == HttpStatusCode.Unauthorized) {
-                        // Очищаем кэшированный токен, так как он недействителен
-                        authInterceptor.clearCachedToken()
-                        Result.failure(AuthException("Authorization required"))
-                    } else {
-                        Result.failure(e)
+                    when (e.response.status) {
+                        HttpStatusCode.Unauthorized -> {
+                            // Очищаем кэшированный токен, так как он недействителен
+                            authInterceptor.clearCachedToken()
+                            Result.failure(AuthException("Authorization required"))
+                        }
+                        HttpStatusCode.TooManyRequests -> {
+                            logger.warn("Rate limit exceeded for project details API: $slug")
+                            Result.failure(RateLimitException("Rate limit exceeded - need to slow down requests"))
+                        }
+                        else -> {
+                            logger.error("HTTP error ${e.response.status} when fetching project details for $slug")
+                            Result.failure(e)
+                        }
                     }
                 }
                 else -> Result.failure(e)
@@ -284,3 +288,4 @@ class KickstarterApiImpl(
 }
 
 class AuthException(message: String) : Exception(message)
+class RateLimitException(message: String) : Exception(message)

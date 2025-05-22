@@ -42,7 +42,7 @@ class ProjectDetailsMapper {
             subcategory = if (projectData.category.parentCategory != null) projectData.category.name else null,
             country = projectData.country.name,
             currency = projectData.currency,
-            deadline = Instant.ofEpochSecond(projectData.deadlineAt),
+            deadline = projectData.deadlineAt?.let { Instant.ofEpochSecond(projectData.deadlineAt) },
             launchedAt = projectData.launchedAt?.let { Instant.ofEpochSecond(it) },
             state = projectData.state,
             isProjectWeLove = projectData.isProjectWeLove,
@@ -72,9 +72,9 @@ class ProjectDetailsMapper {
                 limit = rewardNode.limit,
                 hasShipping = rewardNode.shippingPreference != "none",
                 shippingCountriesCount = rewardNode.simpleShippingRulesExpanded?.size ?: 0,
-                isEarlyBird = rewardNode.name.contains("Early Bird", ignoreCase = true) ||
-                        rewardNode.name.contains("Early Access", ignoreCase = true) ||
-                        rewardNode.name.contains("Super Early", ignoreCase = true),
+                isEarlyBird = rewardNode.name?.contains("Early Bird", ignoreCase = true) == true ||
+                        rewardNode.name?.contains("Early Access", ignoreCase = true) == true ||
+                        rewardNode.name?.contains("Super Early", ignoreCase = true) == true,
                 startsAt = rewardNode.startsAt?.let { Instant.ofEpochSecond(it) },
                 endsAt = rewardNode.endsAt?.let { Instant.ofEpochSecond(it) }
             )

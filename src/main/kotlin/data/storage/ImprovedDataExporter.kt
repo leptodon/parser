@@ -110,11 +110,13 @@ class ImprovedDataExporter {
                     category = project.project.category,
                     subcategory = project.project.subcategory,
                     country = project.project.country,
-                    currency = project.project.currency,
+                    currency = project.project.currency ?: "",
 
                     // Временные характеристики
                     durationDays = if (project.project.launchedAt != null) {
-                        ((project.project.deadline.epochSecond - project.project.launchedAt.epochSecond) / 86400).toInt()
+                        ((project.project.deadline?.epochSecond?.minus(project.project.launchedAt.epochSecond))?.div(
+                            86400
+                        ))?.toInt()
                     } else null,
 
                     // Создатель
@@ -183,11 +185,11 @@ class ImprovedDataExporter {
             escape(project.category),
             escape(project.subcategory ?: ""),
             escape(project.country),
-            escape(project.currency),
+            escape(project.currency ?: ""),
 
             // Временные признаки
             if (project.launchedAt != null) {
-                ((project.deadline.epochSecond - project.launchedAt.epochSecond) / 86400).toString()
+                ((project.deadline?.epochSecond?.minus(project.launchedAt.epochSecond))?.div(86400)).toString()
             } else "",
 
             // Создатель

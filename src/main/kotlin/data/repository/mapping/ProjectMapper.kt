@@ -34,7 +34,7 @@ class ProjectMapper {
                 subcategory = if (node.category.parentCategory != null) node.category.name else null,
                 country = node.country.name,
                 currency = node.goal.currency,
-                deadline = Instant.ofEpochSecond(node.deadlineAt),
+                deadline = node.deadlineAt?.let { Instant.ofEpochSecond(it) },
                 launchedAt = node.launchedAt?.let { Instant.ofEpochSecond(it) },
                 state = node.state,
                 isProjectWeLove = node.isProjectWeLove,

@@ -93,11 +93,11 @@ class SimplifiedDataExporter {
             category = project.category,
             subcategory = project.subcategory,
             country = project.country,
-            currency = project.currency,
+            currency = project.currency ?: "",
             location = project.location,
 
             // Временные данные (как строки)
-            deadlineEpoch = project.deadline.epochSecond,
+            deadlineEpoch = project.deadline?.epochSecond,
             launchedAtEpoch = project.launchedAt?.epochSecond,
 
             // Статус и флаги
@@ -157,7 +157,7 @@ class SimplifiedDataExporter {
                 totalBackersFromRewards = projectDetails.rewards.sumOf { it.backersCount },
 
                 durationDays = if (project.launchedAt != null) {
-                    ((project.deadline.epochSecond - project.launchedAt.epochSecond) / 86400).toInt()
+                    ((project.deadline?.epochSecond?.minus(project.launchedAt.epochSecond))?.div(86400))?.toInt()
                 } else null,
 
                 fundingRatio = project.pledged.amount / project.goal.amount,
@@ -230,11 +230,11 @@ class SimplifiedDataExporter {
             escape(project.category),
             escape(project.subcategory ?: ""),
             escape(project.country),
-            escape(project.currency),
+            escape(project.currency ?: ""),
 
             // Временные признаки
             if (project.launchedAt != null) {
-                ((project.deadline.epochSecond - project.launchedAt.epochSecond) / 86400).toString()
+                ((project.deadline?.epochSecond?.minus(project.launchedAt.epochSecond))?.div(86400)).toString()
             } else "",
 
             // Создатель
@@ -320,7 +320,7 @@ data class ProjectDataSimple(
     val currency: String,
     val location: String?,
 
-    val deadlineEpoch: Long,
+    val deadlineEpoch: Long?,
     val launchedAtEpoch: Long?,
 
     val state: String,
@@ -341,8 +341,8 @@ data class ProjectDataSimple(
 @Serializable
 data class RewardDataSimple(
     val rewardId: String,
-    val name: String,
-    val description: String,
+    val name: String?,
+    val description: String?,
     val amount: Double,
     val currency: String,
     val symbol: String,
