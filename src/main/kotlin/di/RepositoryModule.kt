@@ -7,6 +7,7 @@ import data.repository.mapping.ProjectDetailsMapper
 import data.repository.mapping.ProjectMapper
 import data.storage.CsvWriter
 import data.storage.PreferencesManager
+import data.storage.SimplifiedDataExporter
 import data.storage.StateManager
 import domain.repository.AuthRepository
 import domain.repository.ProjectRepository
@@ -20,6 +21,7 @@ object RepositoryModule {
         singleOf(::PreferencesManager)
         singleOf(::StateManager)
         singleOf(::CsvWriter)
+        singleOf(::SimplifiedDataExporter)
 
         // Mappers
         singleOf(::ProjectMapper)
@@ -27,7 +29,7 @@ object RepositoryModule {
 
         // Repositories
         single<ProjectRepository> { ProjectRepositoryImpl(get(), get(), get(), get()) }
-        single<StorageRepository> { StorageRepositoryImpl(get()) }
+        single<StorageRepository> { StorageRepositoryImpl(get(), get()) }
 
         // AuthRepository создается последним, так как он зависит от KickstarterApi
         single<AuthRepository> { AuthRepositoryImpl(get(), get()) }

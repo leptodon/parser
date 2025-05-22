@@ -7,6 +7,7 @@ import org.koin.core.module.dsl.singleOf
 import org.koin.dsl.module
 import presentation.ParserController
 import presentation.cli.CommandLineInterface
+import presentation.cli.DataAnalysisCLI
 
 object AppModule {
     val module = module {
@@ -18,6 +19,7 @@ object AppModule {
         // Controllers
         singleOf(::ParserController)
         singleOf(::CommandLineInterface)
+        singleOf(::DataAnalysisCLI)
     }
 
     fun provideCommandLineInterface(): CommandLineInterface {
