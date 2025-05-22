@@ -24,16 +24,17 @@ class CsvWriter {
         )
     }
 
+    private val outputDir: File
     private val mlDatasetFile: File
 
     init {
         val timestamp = LocalDateTime.now().format(FORMATTER)
-        val outputDir = Paths.get("output", timestamp).toFile()
+        outputDir = Paths.get("output", timestamp).toFile()
         outputDir.mkdirs()
 
         mlDatasetFile = File(outputDir, ML_DATASET_FILENAME)
 
-        // Write header
+        // Write header only once
         mlDatasetFile.writeText(getMlDatasetHeader() + "\n")
     }
 
@@ -310,4 +311,6 @@ class CsvWriter {
         }
         return text
     }
+
+    fun getOutputDirectory(): String = outputDir.absolutePath
 }

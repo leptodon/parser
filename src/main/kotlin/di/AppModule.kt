@@ -19,7 +19,6 @@ object AppModule {
         // Controllers
         singleOf(::ParserController)
         singleOf(::CommandLineInterface)
-        singleOf(::DataAnalysisCLI)
     }
 
     fun provideCommandLineInterface(): CommandLineInterface {

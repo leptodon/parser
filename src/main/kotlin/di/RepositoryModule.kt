@@ -29,7 +29,7 @@ object RepositoryModule {
 
         // Repositories
         single<ProjectRepository> { ProjectRepositoryImpl(get(), get(), get(), get()) }
-        single<StorageRepository> { StorageRepositoryImpl(get(), get()) }
+        single<StorageRepository> { StorageRepositoryImpl(get()) }
 
         // AuthRepository создается последним, так как он зависит от KickstarterApi
         single<AuthRepository> { AuthRepositoryImpl(get(), get()) }

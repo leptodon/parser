@@ -6,15 +6,14 @@ import presentation.ParserController
 import java.util.Scanner
 
 class CommandLineInterface(
-    private val parserController: ParserController,
-    private val dataAnalysisCLI: DataAnalysisCLI
+    private val parserController: ParserController
 ) {
     private val logger = LoggerFactory.getLogger(CommandLineInterface::class.java)
     private val scanner = Scanner(System.`in`)
 
     fun start() {
-        println("=== Kickstarter Project Parser & Data Analyzer ===")
-        println("Enhanced version with ML-ready data export")
+        println("=== Kickstarter Project Parser ===")
+        println("ML-ready dataset export to CSV format")
 
         var running = true
         while (running) {
@@ -22,18 +21,16 @@ class CommandLineInterface(
             println("1. Start parsing projects")
             println("2. Stop parsing")
             println("3. Reset pagination")
-            println("4. Data analysis & export options")
-            println("5. Show data formats info")
-            println("6. Exit")
+            println("4. Show output format info")
+            println("5. Exit")
             print("\nEnter command: ")
 
             when (scanner.nextLine().trim()) {
                 "1" -> startParsing()
                 "2" -> parserController.stopParsing()
                 "3" -> parserController.resetPagination()
-                "4" -> dataAnalysisCLI.showDataAnalysisMenu()
-                "5" -> showDataFormatsInfo()
-                "6" -> running = false
+                "4" -> showOutputFormatInfo()
+                "5" -> running = false
                 else -> println("Invalid command")
             }
         }
@@ -55,10 +52,8 @@ class CommandLineInterface(
         val delay = if (delayStr.isEmpty()) 1000L else delayStr.toLongOrNull() ?: 1000L
 
         println("Starting parser with batch size: $batchSize, max projects: $maxProjects, delay: $delay ms")
-        println("Data will be exported in multiple formats for different use cases:")
-        println("  • JSON format for detailed analysis")
-        println("  • ML-ready JSON for training models")
-        println("  • CSV format for quick analysis")
+        println("Data will be saved to: kickstarter_ml_dataset.csv")
+        println("Each project is saved immediately to disk!")
 
         runBlocking {
             parserController.startParsing(
@@ -75,43 +70,61 @@ class CommandLineInterface(
         }
     }
 
-    private fun showDataFormatsInfo() {
-        println("\n=== Improved Data Export Formats ===")
+    private fun showOutputFormatInfo() {
+        println("\n=== Output Format Information ===")
         println()
-        println("🎯 ML-Ready Formats (Recommended):")
-        println("  📊 kickstarter_training_data.json")
-        println("     • Structured data with extracted features")
-        println("     • Ready for deep learning frameworks")
-        println("     • Includes target variables for supervised learning")
+        println("📊 File: kickstarter_ml_dataset.csv")
+        println("📁 Location: output/[timestamp]/")
+        println("💾 Write mode: Immediate (each project saved instantly)")
         println()
-        println("  📈 kickstarter_features.csv")
-        println("     • Tabular format with numerical features")
-        println("     • Perfect for scikit-learn, pandas analysis")
-        println("     • Easy to import into Excel, R, or Python")
+        println("🎯 Dataset Features (42 columns):")
         println()
-        println("🔍 Research Formats:")
-        println("  📋 kickstarter_projects.json")
-        println("     • Complete project data with all details")
-        println("     • Hierarchical JSON structure")
-        println("     • Best for exploratory data analysis")
+        println("Target Variables (3):")
+        println("  • is_successful - Project success (true/false)")
+        println("  • funding_ratio - Pledged/Goal ratio")
+        println("  • backer_count - Number of backers")
         println()
-        println("🔄 Legacy Formats (for compatibility):")
-        println("  📄 kickstarter_projects.csv & kickstarter_rewards.csv")
-        println("     • Original two-file format")
-        println("     • Maintained for backward compatibility")
+        println("Text Content (4):")
+        println("  • story - Cleaned project story")
+        println("  • description - Cleaned description")
+        println("  • risks - Cleaned risks section")
+        println("  • name - Cleaned project name")
         println()
-        println("💡 What's improved:")
-        println("  ✅ Single comprehensive dataset vs. split files")
-        println("  ✅ Pre-calculated ML features (text length, ratios, etc.)")
-        println("  ✅ Proper target variables for different prediction tasks")
-        println("  ✅ Categorical encoding preparation")
-        println("  ✅ Feature engineering (funding ratio, avg pledge, etc.)")
+        println("Text Metrics (9):")
+        println("  • story_length, description_length, title_length")
+        println("  • description_word_count, title_word_count, risks_word_count")
+        println("  • story_readability_score, description_readability_score")
+        println("  • text_quality_score")
         println()
-        println("🎯 Use Cases:")
-        println("  • Predict project success: Use 'is_successful' target")
-        println("  • Predict funding amount: Use 'pledged_amount' target")
-        println("  • Predict backer count: Use 'backer_count' target")
-        println("  • Category analysis: Use 'category' and related features")
-        println("  • Creator analysis: Use creator-related features")
+        println("Project Features (20):")
+        println("  • goal_amount, goal_amount_log")
+        println("  • category, subcategory, country")
+        println("  • duration_days")
+        println("  • creator_projects_count, creator_backings_count, creator_experience_score")
+        println("  • has_video, rewards_count, avg_reward_amount, reward_price_range")
+        println("  • has_early_bird_rewards, has_limited_rewards, has_risks")
+        println("  • faq_count, updates_count")
+        println("  • is_project_we_love, has_location")
+        println("  • funding_per_backer")
+        println()
+        println("✨ Enhanced Features:")
+        println("  • Log-transformed goal amount for better ML performance")
+        println("  • Readability scores using Flesch formula")
+        println("  • Text quality score (0-1 scale)")
+        println("  • Creator experience score (weighted combination)")
+        println("  • Reward price range analysis")
+        println()
+        println("🎯 ML Use Cases:")
+        println("  • Binary classification: Predict project success")
+        println("  • Regression: Predict funding amount or backer count")
+        println("  • Multi-class: Predict success level categories")
+        println("  • Text analysis: Story/description impact on success")
+        println()
+        println("📋 Data Quality:")
+        println("  • HTML tags removed from text fields")
+        println("  • URLs and emails sanitized")
+        println("  • CSV properly escaped (commas, quotes handled)")
+        println("  • Missing values handled gracefully")
+        println("  • Immediate disk writes prevent data loss")
     }
 }
