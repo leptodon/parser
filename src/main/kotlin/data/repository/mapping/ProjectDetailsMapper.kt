@@ -12,6 +12,11 @@ class ProjectDetailsMapper {
     fun mapFromResponse(response: ProjectDetailsResponse): ProjectDetails {
         val projectData = response.data.project
 
+        // Calculate percent funded if not available
+        val percentFunded = if (projectData.goal.amount.toDouble() > 0) {
+            ((projectData.pledged.amount.toDouble() / projectData.goal.amount.toDouble()) * 100).toInt()
+        } else 0
+
         val project = Project(
             id = projectData.id,
             pid = null,
@@ -29,7 +34,7 @@ class ProjectDetailsMapper {
                 currency = projectData.pledged.currency,
                 symbol = projectData.pledged.symbol
             ),
-            percentFunded = null,
+            percentFunded = percentFunded,
             creatorName = projectData.creator.name,
             creatorBackingsCount = projectData.creator.backingsCount,
             creatorLaunchedProjectsCount = projectData.creator.launchedProjects?.totalCount,
@@ -56,14 +61,20 @@ class ProjectDetailsMapper {
                 ),
                 backersCount = rewardNode.backersCount,
                 estimatedDeliveryDate = rewardNode.estimatedDeliveryOn?.let {
-                    LocalDate.parse(it)
+                    try {
+                        LocalDate.parse(it)
+                    } catch (e: Exception) {
+                        null // Handle invalid date formats gracefully
+                    }
                 },
                 isLimited = rewardNode.limit != null || rewardNode.remainingQuantity != null,
                 remainingQuantity = rewardNode.remainingQuantity,
                 limit = rewardNode.limit,
                 hasShipping = rewardNode.shippingPreference != "none",
                 shippingCountriesCount = rewardNode.simpleShippingRulesExpanded?.size ?: 0,
-                isEarlyBird = rewardNode.name.contains("Early Bird", ignoreCase = true),
+                isEarlyBird = rewardNode.name.contains("Early Bird", ignoreCase = true) ||
+                        rewardNode.name.contains("Early Access", ignoreCase = true) ||
+                        rewardNode.name.contains("Super Early", ignoreCase = true),
                 startsAt = rewardNode.startsAt?.let { Instant.ofEpochSecond(it) },
                 endsAt = rewardNode.endsAt?.let { Instant.ofEpochSecond(it) }
             )

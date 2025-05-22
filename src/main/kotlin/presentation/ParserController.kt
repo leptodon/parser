@@ -5,7 +5,6 @@ import domain.model.Project
 import domain.usecase.GetProjectDetailsUseCase
 import domain.usecase.GetProjectsUseCase
 import domain.usecase.SaveProjectsDataUseCase
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -57,6 +56,9 @@ class ParserController(
                                 processProject(project)
                                 processedCount++
 
+                                // Log progress after each project is saved
+                                logger.info("✅ Successfully processed and saved project #$processedCount: ${project.name}")
+
                                 if (maxProjects > 0 && processedCount >= maxProjects) {
                                     logger.info("Reached maximum number of projects: $maxProjects")
                                     break
@@ -67,7 +69,7 @@ class ParserController(
                             } catch (e: AuthException) {
                                 handleAuthError()
                             } catch (e: Exception) {
-                                logger.error("Error processing project ${project.slug}", e)
+                                logger.error("❌ Error processing project ${project.slug}", e)
                                 // Continue with next project
                             }
                         }
@@ -83,27 +85,28 @@ class ParserController(
                 )
             }
 
-            logger.info("Parsing completed. Processed $processedCount projects.")
+            logger.info("🎉 Parsing completed. Processed $processedCount projects.")
         } finally {
             isRunning = false
         }
     }
 
     private suspend fun processProject(project: Project) {
-        logger.info("Processing project: ${project.name} (${project.slug})")
+        logger.info("🔄 Processing project: ${project.name} (${project.slug})")
 
         val detailsResult = getProjectDetailsUseCase(project.slug)
 
         detailsResult.fold(
             onSuccess = { projectDetails ->
-                logger.info("Fetched details for ${project.name}")
+                logger.info("📥 Fetched details for ${project.name}")
 
                 saveProjectsDataUseCase(projectDetails).fold(
                     onSuccess = {
-                        logger.info("Saved data for ${project.name}")
+                        logger.info("💾 Data saved to CSV for ${project.name}")
                     },
                     onFailure = { error ->
-                        logger.error("Failed to save project data for ${project.name}", error)
+                        logger.error("💥 Failed to save project data for ${project.name}", error)
+                        throw error // Re-throw to stop processing this project
                     }
                 )
             },
@@ -111,33 +114,34 @@ class ParserController(
                 if (error is AuthException) {
                     throw error // Let the caller handle auth errors
                 } else {
-                    logger.error("Failed to fetch details for ${project.name}", error)
+                    logger.error("📱 Failed to fetch details for ${project.name}", error)
+                    throw error // Re-throw to stop processing this project
                 }
             }
         )
     }
 
     private suspend fun handleAuthError() {
-        logger.warn("Authentication error. Requesting new token...")
+        logger.warn("🚨 Authentication error. Requesting new token...")
         val newToken = requestNewToken()
 
         if (newToken == null) {
-            logger.error("Failed to get new token. Stopping parser.")
+            logger.error("🔒 Failed to get new token. Stopping parser.")
             isRunning = false
         } else {
-            logger.info("Received new token. Continuing...")
+            logger.info("🔑 Received new token. Continuing...")
         }
     }
 
     fun stopParsing() {
-        logger.info("Stopping parser...")
+        logger.info("⏹️ Stopping parser...")
         isRunning = false
     }
 
     fun resetPagination() {
         runBlocking {
             getProjectsUseCase.resetPagination()
-            logger.info("Pagination reset. Will start from the beginning.")
+            logger.info("🔄 Pagination reset. Will start from the beginning.")
         }
     }
 }
