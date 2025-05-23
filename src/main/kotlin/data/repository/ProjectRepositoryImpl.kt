@@ -11,6 +11,8 @@ import domain.model.ProjectDetails
 import domain.repository.ProjectRepository
 import kotlinx.coroutines.delay
 import org.slf4j.LoggerFactory
+import kotlin.math.pow
+import kotlin.math.min
 
 class ProjectRepositoryImpl(
     private val api: KickstarterApi,
@@ -21,12 +23,19 @@ class ProjectRepositoryImpl(
 
     private val logger = LoggerFactory.getLogger(ProjectRepositoryImpl::class.java)
 
+    // Rate limiting state
+    private var consecutiveRateLimitErrors = 0
+    private var lastRateLimitTime = 0L
+
     override suspend fun getProjects(limit: Int): Result<List<Project>> {
         val cursor = stateManager.getLastCursor()
         return try {
             val response = api.getProjects(cursor, limit)
             response.fold(
                 onSuccess = { projectsResponse ->
+                    // Reset rate limit counters on success
+                    consecutiveRateLimitErrors = 0
+
                     val projects = projectMapper.mapFromResponse(projectsResponse)
                     val lastCursor = projectsResponse.data.projects.pageInfo.endCursor
                     stateManager.saveLastCursor(lastCursor)
@@ -40,7 +49,8 @@ class ProjectRepositoryImpl(
                             Result.failure(error)
                         }
                         is RateLimitException -> {
-                            logger.warn("Rate limit exceeded in getProjects - applying backoff")
+                            logger.warn("Rate limit exceeded in getProjects - applying exponential backoff")
+                            applyRateLimitBackoff()
                             Result.failure(error)
                         }
                         else -> {
@@ -61,6 +71,9 @@ class ProjectRepositoryImpl(
             val response = api.getProjectDetails(slug)
             response.fold(
                 onSuccess = { detailsResponse ->
+                    // Reset rate limit counters on success
+                    consecutiveRateLimitErrors = 0
+
                     val projectDetails = projectDetailsMapper.mapFromResponse(detailsResponse)
                     Result.success(projectDetails)
                 },
@@ -71,7 +84,8 @@ class ProjectRepositoryImpl(
                             Result.failure(error)
                         }
                         is RateLimitException -> {
-                            logger.warn("Rate limit exceeded in getProjectDetails for $slug - applying backoff")
+                            logger.warn("Rate limit exceeded in getProjectDetails for $slug - applying exponential backoff")
+                            applyRateLimitBackoff()
                             Result.failure(error)
                         }
                         else -> {
@@ -87,11 +101,37 @@ class ProjectRepositoryImpl(
         }
     }
 
+    private suspend fun applyRateLimitBackoff() {
+        consecutiveRateLimitErrors++
+        val currentTime = System.currentTimeMillis()
+        lastRateLimitTime = currentTime
+
+        // Calculate exponential backoff with jitter
+        val baseDelay = 60_000L // 1 minute base
+        val backoffDelay = (baseDelay * (2.0.pow(consecutiveRateLimitErrors - 1))).toLong()
+        val maxDelay = 600_000L // 10 minutes max
+        val actualDelay = min(backoffDelay, maxDelay)
+
+        // Add some jitter (±10%)
+        val jitter = (actualDelay * 0.1 * (Math.random() - 0.5)).toLong()
+        val finalDelay = actualDelay + jitter
+
+        logger.warn("🚦 Rate limit exceeded (attempt #$consecutiveRateLimitErrors). Backing off for ${finalDelay / 1000} seconds...")
+
+        // Apply the backoff delay
+        delay(finalDelay)
+
+        logger.info("🟢 Rate limit backoff complete. Resuming...")
+    }
+
     override fun hasMoreProjects(): Boolean {
         return stateManager.hasMorePages()
     }
 
     override suspend fun resetPagination() {
+        // Also reset rate limiting state when pagination is reset
+        consecutiveRateLimitErrors = 0
+        lastRateLimitTime = 0L
         stateManager.resetCursor()
     }
 }

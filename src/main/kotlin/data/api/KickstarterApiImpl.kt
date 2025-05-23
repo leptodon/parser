@@ -23,6 +23,12 @@ class KickstarterApiImpl(
 
     companion object {
         private const val BASE_URL = "https://www.kickstarter.com/graph"
+        private const val CLIENT_ID = "6B5W0CGU6NQPQ67588QEU1DOQL19BPF521VGPNY3XQXXUEGTND"
+
+        // Добавляем более консервативные задержки между запросами
+        private const val MIN_REQUEST_DELAY = 2000L // 2 секунды между запросами
+        private const val RATE_LIMIT_DELAY = 120_000L // 30 секунд при получении 429
+
         private const val PROJECTS_QUERY = """
             query FetchProjects(${'$'}first: Int = 15, ${'$'}cursor: String, ${'$'}sort: ProjectSort) { 
               projects(first: ${'$'}first, after: ${'$'}cursor, sort: ${'$'}sort) { 
@@ -183,8 +189,47 @@ class KickstarterApiImpl(
         """
     }
 
+    // Добавляем отслеживание времени последнего запроса для rate limiting
+    private var lastRequestTime = 0L
+
+    private suspend fun applyRateLimit() {
+        val currentTime = System.currentTimeMillis()
+        val timeSinceLastRequest = currentTime - lastRequestTime
+
+        if (timeSinceLastRequest < MIN_REQUEST_DELAY) {
+            val delayNeeded = MIN_REQUEST_DELAY - timeSinceLastRequest
+            logger.debug("Applying rate limit delay: ${delayNeeded}ms")
+            kotlinx.coroutines.delay(delayNeeded)
+        }
+
+        lastRequestTime = System.currentTimeMillis()
+    }
+
+    private fun HttpRequestBuilder.setKickstarterHeaders() {
+        // Основные заголовки из анализа REST API запросов
+        header("Accept", "application/json")
+        header("User-Agent", "Kickstarter Android Mobile Variant/externalRelease Code/2014150939 Version/3.31.1")
+        header("X-KICKSTARTER-CLIENT", CLIENT_ID)
+        header("Kickstarter-Android-App-UUID", "eiYleJuAR7a-eWh2YQ3xFR")
+        header("Kickstarter-Android-App", "2014150939")
+        header("Kickstarter-App-Id", "com.kickstarter.kickstarter")
+        header("Accept-Language", "en")
+
+        // Добавляем токен авторизации, если доступен
+        authInterceptor.getAuthorizationHeader()?.let { token ->
+            // Используем формат X-Auth: token <token> как в REST API
+            header("X-Auth", "token $token")
+        }
+
+        // Добавляем Content-Type для GraphQL
+        contentType(ContentType.Application.Json)
+    }
+
     override suspend fun getProjects(cursor: String?, limit: Int): Result<ProjectsResponse> = withContext(Dispatchers.IO) {
         try {
+            // Применяем rate limiting
+            applyRateLimit()
+
             val request = GraphQLRequest(
                 operationName = "FetchProjects",
                 variables = buildJsonObject {
@@ -195,19 +240,18 @@ class KickstarterApiImpl(
                 query = PROJECTS_QUERY
             )
 
-            val response = httpClient.post(BASE_URL) {
-                contentType(ContentType.Application.Json)
-                setBody(request)
+            logger.debug("Making projects request with cursor: $cursor, limit: $limit")
 
-                // Добавляем заголовок авторизации, если он доступен
-                authInterceptor.getAuthorizationHeader()?.let {
-                    header("Authorization", it)
-                }
+            val response = httpClient.post(BASE_URL) {
+                setKickstarterHeaders()
+                setBody(request)
             }
 
             if (response.status.isSuccess()) {
+                logger.debug("Projects request successful: ${response.status}")
                 Result.success(response.body())
             } else {
+                logger.warn("Projects request failed with status: ${response.status}")
                 Result.failure(Exception("Failed to fetch projects: ${response.status}"))
             }
         } catch (e: Exception) {
@@ -215,46 +259,57 @@ class KickstarterApiImpl(
                 is ClientRequestException -> {
                     when (e.response.status) {
                         HttpStatusCode.Unauthorized -> {
-                            // Очищаем кэшированный токен, так как он недействителен
+                            logger.error("Unauthorized request - token may be invalid")
                             authInterceptor.clearCachedToken()
-                            Result.failure(AuthException("Authorization required"))
+                            Result.failure(AuthException("Authorization required - token invalid"))
                         }
                         HttpStatusCode.TooManyRequests -> {
-                            logger.warn("Rate limit exceeded for projects API")
-                            Result.failure(RateLimitException("Rate limit exceeded - need to slow down requests"))
+                            logger.warn("Rate limit exceeded for projects API - need longer delays")
+                            // Применяем более длительную задержку при rate limiting
+                            kotlinx.coroutines.delay(RATE_LIMIT_DELAY)
+                            Result.failure(RateLimitException("Rate limit exceeded - applied ${RATE_LIMIT_DELAY}ms delay"))
+                        }
+                        HttpStatusCode.Forbidden -> {
+                            logger.error("Forbidden request - may need different authentication")
+                            Result.failure(AuthException("Access forbidden - check authentication"))
                         }
                         else -> {
-                            logger.error("HTTP error ${e.response.status} when fetching projects")
+                            logger.error("HTTP error ${e.response.status} when fetching projects", e)
                             Result.failure(e)
                         }
                     }
                 }
-                else -> Result.failure(e)
+                else -> {
+                    logger.error("Network error when fetching projects", e)
+                    Result.failure(e)
+                }
             }
         }
     }
 
     override suspend fun getProjectDetails(slug: String): Result<ProjectDetailsResponse> = withContext(Dispatchers.IO) {
         try {
+            // Применяем rate limiting
+            applyRateLimit()
+
             val request = GraphQLRequest(
                 operationName = "FetchProject",
-                variables = buildJsonObject{put("slug", slug)},
+                variables = buildJsonObject { put("slug", slug) },
                 query = PROJECT_DETAILS_QUERY
             )
 
-            val response = httpClient.post(BASE_URL) {
-                contentType(ContentType.Application.Json)
-                setBody(request)
+            logger.debug("Making project details request for slug: $slug")
 
-                // Добавляем заголовок авторизации, если он доступен
-                authInterceptor.getAuthorizationHeader()?.let {
-                    header("Authorization", it)
-                }
+            val response = httpClient.post(BASE_URL) {
+                setKickstarterHeaders()
+                setBody(request)
             }
 
             if (response.status.isSuccess()) {
+                logger.debug("Project details request successful for $slug: ${response.status}")
                 Result.success(response.body())
             } else {
+                logger.warn("Project details request failed for $slug with status: ${response.status}")
                 Result.failure(Exception("Failed to fetch project details: ${response.status}"))
             }
         } catch (e: Exception) {
@@ -262,28 +317,41 @@ class KickstarterApiImpl(
                 is ClientRequestException -> {
                     when (e.response.status) {
                         HttpStatusCode.Unauthorized -> {
-                            // Очищаем кэшированный токен, так как он недействителен
+                            logger.error("Unauthorized request for project $slug - token may be invalid")
                             authInterceptor.clearCachedToken()
-                            Result.failure(AuthException("Authorization required"))
+                            Result.failure(AuthException("Authorization required - token invalid"))
                         }
                         HttpStatusCode.TooManyRequests -> {
                             logger.warn("Rate limit exceeded for project details API: $slug")
-                            Result.failure(RateLimitException("Rate limit exceeded - need to slow down requests"))
+                            kotlinx.coroutines.delay(RATE_LIMIT_DELAY)
+                            Result.failure(RateLimitException("Rate limit exceeded for $slug - applied ${RATE_LIMIT_DELAY}ms delay"))
+                        }
+                        HttpStatusCode.Forbidden -> {
+                            logger.error("Forbidden request for project $slug - may need different authentication")
+                            Result.failure(AuthException("Access forbidden for $slug - check authentication"))
+                        }
+                        HttpStatusCode.NotFound -> {
+                            logger.warn("Project not found: $slug")
+                            Result.failure(Exception("Project not found: $slug"))
                         }
                         else -> {
-                            logger.error("HTTP error ${e.response.status} when fetching project details for $slug")
+                            logger.error("HTTP error ${e.response.status} when fetching project details for $slug", e)
                             Result.failure(e)
                         }
                     }
                 }
-                else -> Result.failure(e)
+                else -> {
+                    logger.error("Network error when fetching project details for $slug", e)
+                    Result.failure(e)
+                }
             }
         }
     }
 
     override suspend fun refreshToken(token: String): Result<String> {
-        // Implement token refresh logic
-        return Result.failure(NotImplementedError("Token refresh not implemented"))
+        // Для GraphQL API обновление токенов может потребовать отдельного REST endpoint
+        logger.warn("Token refresh not implemented for GraphQL API")
+        return Result.failure(NotImplementedError("Token refresh not implemented for GraphQL API"))
     }
 }
 
