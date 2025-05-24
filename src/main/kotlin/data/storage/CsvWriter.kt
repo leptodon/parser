@@ -14,6 +14,7 @@ import kotlin.math.log10
 class CsvWriter {
     companion object {
         private const val ML_DATASET_FILENAME = "kickstarter_ml_dataset.csv"
+        private const val SESSION_FILE = "current_session.txt"
         private val FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss")
 
         // Common words to filter out for readability score
@@ -24,18 +25,46 @@ class CsvWriter {
         )
     }
 
-    private val outputDir: File
-    private val mlDatasetFile: File
+    private var outputDir: File
+    private var mlDatasetFile: File
 
     init {
+        // Попытаемся найти существующую сессию
+        val sessionFile = File(SESSION_FILE)
+        val existingSession = if (sessionFile.exists()) {
+            sessionFile.readText().trim()
+        } else null
+
+        // Если есть существующая сессия и папка существует - используем её
+        if (existingSession != null) {
+            val existingDir = Paths.get("output", existingSession).toFile()
+            if (existingDir.exists()) {
+                outputDir = existingDir
+                mlDatasetFile = File(outputDir, ML_DATASET_FILENAME)
+
+                // Проверяем, что файл существует и не поврежден
+                if (mlDatasetFile.exists() && mlDatasetFile.readLines().isNotEmpty()) {
+                    println("📂 Resuming existing session: $existingSession")
+                    println("📄 Continuing to write to: ${mlDatasetFile.absolutePath}")
+                }
+            }
+        }
+
+        // Создаем новую сессию
         val timestamp = LocalDateTime.now().format(FORMATTER)
         outputDir = Paths.get("output", timestamp).toFile()
         outputDir.mkdirs()
 
         mlDatasetFile = File(outputDir, ML_DATASET_FILENAME)
 
-        // Write header only once
+        // Записываем заголовок только для нового файла
         mlDatasetFile.writeText(getMlDatasetHeader() + "\n")
+
+        // Сохраняем информацию о текущей сессии
+        sessionFile.writeText(timestamp)
+
+        println("📂 Started new session: $timestamp")
+        println("📄 Created new dataset file: ${mlDatasetFile.absolutePath}")
     }
 
     private fun getMlDatasetHeader(): String {
@@ -98,7 +127,7 @@ class CsvWriter {
         } else 0.0
 
         // Calculate duration in days
-        val durationDays = if (project.launchedAt != null) {
+        val durationDays = if (project.launchedAt != null && project.deadline != null) {
             ChronoUnit.DAYS.between(project.launchedAt, project.deadline)
         } else 0L
 
@@ -199,6 +228,25 @@ class CsvWriter {
             fos.write((mlRow + "\n").toByteArray())
             fos.flush() // Force buffered data to be written
             fos.getFD().sync() // Force OS to write to physical disk
+        }
+    }
+
+    // Метод для принудительного создания новой сессии
+    fun startNewSession() {
+        val sessionFile = File(SESSION_FILE)
+        if (sessionFile.exists()) {
+            sessionFile.delete()
+        }
+        println("🔄 New session will be created on next startup")
+    }
+
+    // Метод для получения информации о текущей сессии
+    fun getSessionInfo(): String {
+        return if (mlDatasetFile.exists()) {
+            val linesCount = mlDatasetFile.readLines().size - 1 // Минус заголовок
+            "Current session: ${outputDir.name}, Projects saved: $linesCount, File: ${mlDatasetFile.absolutePath}"
+        } else {
+            "No active session"
         }
     }
 

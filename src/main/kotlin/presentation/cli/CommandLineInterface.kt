@@ -1,6 +1,8 @@
 package presentation.cli
 
+import data.storage.CsvWriter
 import kotlinx.coroutines.runBlocking
+import org.koin.java.KoinJavaComponent
 import org.slf4j.LoggerFactory
 import presentation.ParserController
 import java.util.Scanner
@@ -15,27 +17,61 @@ class CommandLineInterface(
         println("=== Kickstarter Project Parser ===")
         println("ML-ready dataset export to CSV format")
 
+        // Показываем информацию о текущей сессии
+        showSessionInfo()
+
         var running = true
         while (running) {
             println("\n=== Main Menu ===")
             println("1. Start parsing projects")
             println("2. Stop parsing")
             println("3. Reset pagination")
-            println("4. Show output format info")
-            println("5. Exit")
+            println("4. Show session info")
+            println("5. Start new session")
+            println("6. Show output format info")
+            println("7. Exit")
             print("\nEnter command: ")
 
             when (scanner.nextLine().trim()) {
                 "1" -> startParsing()
                 "2" -> parserController.stopParsing()
                 "3" -> parserController.resetPagination()
-                "4" -> showOutputFormatInfo()
-                "5" -> running = false
+                "4" -> showSessionInfo()
+                "5" -> startNewSession()
+                "6" -> showOutputFormatInfo()
+                "7" -> running = false
                 else -> println("Invalid command")
             }
         }
 
         println("Exiting...")
+    }
+
+    private fun showSessionInfo() {
+        try {
+            val csvWriter = KoinJavaComponent.get<CsvWriter>(CsvWriter::class.java)
+            println("\n📊 " + csvWriter.getSessionInfo())
+        } catch (e: Exception) {
+            println("⚠️ Could not get session info: ${e.message}")
+        }
+    }
+
+    private fun startNewSession() {
+        print("Are you sure you want to start a new session? This will create a new dataset file. (y/N): ")
+        val confirmation = scanner.nextLine().trim().lowercase()
+
+        if (confirmation == "y" || confirmation == "yes") {
+            try {
+                val csvWriter = KoinJavaComponent.get<CsvWriter>(CsvWriter::class.java)
+                csvWriter.startNewSession()
+                println("✅ New session will be created when you restart the parser.")
+                println("💡 Please restart the application to begin the new session.")
+            } catch (e: Exception) {
+                println("❌ Error starting new session: ${e.message}")
+            }
+        } else {
+            println("Cancelled.")
+        }
     }
 
     private fun startParsing() {
@@ -54,6 +90,8 @@ class CommandLineInterface(
         println("Starting parser with batch size: $batchSize, max projects: $maxProjects, delay: $delay ms")
         println("Data will be saved to: kickstarter_ml_dataset.csv")
         println("Each project is saved immediately to disk!")
+
+        showSessionInfo()
 
         runBlocking {
             parserController.startParsing(
@@ -74,8 +112,15 @@ class CommandLineInterface(
         println("\n=== Output Format Information ===")
         println()
         println("📊 File: kickstarter_ml_dataset.csv")
-        println("📁 Location: output/[timestamp]/")
+        println("📁 Location: output/[session-timestamp]/")
         println("💾 Write mode: Immediate (each project saved instantly)")
+        println("🔄 Session management: Continues existing session on restart")
+        println()
+        println("📋 Session Management:")
+        println("  • When you restart the parser, it continues the same session")
+        println("  • New data is appended to the existing CSV file")
+        println("  • Use 'Reset pagination' to start from beginning of Kickstarter data")
+        println("  • Use 'Start new session' to create a completely new dataset file")
         println()
         println("🎯 Dataset Features (42 columns):")
         println()
@@ -126,5 +171,6 @@ class CommandLineInterface(
         println("  • CSV properly escaped (commas, quotes handled)")
         println("  • Missing values handled gracefully")
         println("  • Immediate disk writes prevent data loss")
+        println("  • No duplicate data on restart (session continuation)")
     }
 }
